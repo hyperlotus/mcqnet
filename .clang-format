@@ -1,0 +1,31 @@
+Language: Cpp
+BasedOnStyle: WebKit
+
+# 1. 缩进与对齐
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120
+AccessModifierOffset: -4        # 让 public/private 与 class 关键字对齐
+NamespaceIndentation: None      # namespace 内部不缩进
+
+# 2. 大括号换行风格
+BreakBeforeBraces: Attach       # 大括号不换行 (K&R/One True Brace Style)
+
+# 3. 空格处理 (你的核心喜好)
+SpacesInConditionalStatement: true # if ( condition ) -> 括号内加空格
+SpacesInContainerLiterals: true    # vector = { 1, 2 } -> 大括号内加空格
+SpaceBeforeParens: ControlStatements # 仅在 if/for/switch 等关键字后加空格，函数调用不加
+SpacesInParentheses: false         # 普通函数调用括号内不加空格
+
+# 4. 指针与引用
+PointerAlignment: Left          # int* p (靠左)
+
+# 5. Switch 语句
+IndentCaseLabels: true          # case 比 switch 缩进一级
+AllowShortCaseLabelsOnASingleLine: true # 允许 case 1: ... break; 写在同一行
+
+# 6. 其他细节
+FixNamespaceComments: true      # 自动修复 namespace 结尾的注释
+SortIncludes: true              # 自动排序头文件
+SeparateDefinitionBlocks: Always # 连续定义块之间至少空一行，函数前的宏/属性也算同一个定义块

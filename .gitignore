@@ -1,0 +1,28 @@
+# Local caches
+/.cache/
+
+# CMake build directories
+/build/
+/build-*/
+/cmake-build-*/
+
+# In-source CMake/Ninja generated files
+/CMakeCache.txt
+/CMakeFiles/
+/.cmake/
+/compile_commands.json
+/CTestTestfile.cmake
+/Testing/
+/DartConfiguration.tcl
+/cmake_install.cmake
+/build.ninja
+/.ninja_deps
+/.ninja_log
+
+# Editor and OS temp files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
