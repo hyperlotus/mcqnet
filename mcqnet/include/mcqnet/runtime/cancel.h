@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <condition_variable>
-#include <cstdint>
 #include <mcqnet/detail/macro.h>
 #include <memory>
 #include <mutex>
