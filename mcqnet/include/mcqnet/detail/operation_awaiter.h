@@ -26,6 +26,9 @@ public:
     inline bool await_ready() const noexcept { return operation_.is_completed(); }
 
     inline bool await_suspend(std::coroutine_handle<> continuation) {
+        if constexpr ( requires(TOperation& operation) { operation.bind_explicit_runtime_if_missing(); } ) {
+            operation_.bind_explicit_runtime_if_missing();
+        }
         // 若操作对象尚未指定 scheduler，则继承当前 runtime。
         // 这样 operation.complete() 触发恢复时会把 continuation 放回 runtime ready queue。
         bind_current_scheduler_if_missing(operation_);

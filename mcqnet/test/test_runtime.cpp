@@ -1,6 +1,7 @@
 #include <future>
 #include <chrono>
 #include <cstdlib>
+#include <deque>
 #include <iostream>
 #include <stdexcept>
 #include <string_view>
@@ -134,6 +135,152 @@ Task<void> await_manual_operation_and_stop(
 Task<void> await_manual_operation_without_stop(ManualOperation& operation, int* result, bool* completed) {
     *result = co_await mcqnet::detail::make_operation_awaiter(operation);
     *completed = true;
+}
+
+Task<void> await_untracked_gate(ManualGate& gate, bool* completed) {
+    co_await gate;
+    *completed = true;
+}
+
+class TrackedGate {
+public:
+    [[nodiscard]] bool await_ready() const noexcept { return open_; }
+
+    bool await_suspend(std::coroutine_handle<> continuation) noexcept {
+        continuation_ = continuation;
+        scheduler_ = mcqnet::detail::SchedulerScope::current();
+        scheduler_.retain_work();
+        return !open_;
+    }
+
+    void await_resume() const noexcept { }
+
+    void open() noexcept {
+        open_ = true;
+        if ( continuation_ != nullptr ) {
+            std::coroutine_handle<> continuation = continuation_;
+            continuation_ = nullptr;
+            if ( scheduler_.valid() ) {
+                scheduler_.schedule(continuation);
+            } else {
+                continuation.resume();
+            }
+        }
+    }
+
+private:
+    bool open_ { false };
+    std::coroutine_handle<> continuation_ { };
+    mcqnet::detail::SchedulerBinding scheduler_ { };
+};
+
+Task<void> await_tracked_gate(TrackedGate& gate, bool* completed) {
+    co_await gate;
+    *completed = true;
+}
+
+class ManualCompletionBackend;
+
+class BackendOperation final : public mcqnet::detail::OperationBase {
+public:
+    explicit BackendOperation(ManualCompletionBackend& backend) noexcept
+        : backend_(backend) { }
+
+    void submit();
+
+    void finish(int value) { complete(value); }
+
+    int await_resume() {
+        rethrow_if_exception();
+        return completion_result();
+    }
+
+    [[nodiscard]] bool submitted() const noexcept { return submitted_; }
+
+private:
+    ManualCompletionBackend& backend_;
+    bool submitted_ { false };
+};
+
+class ManualCompletionBackend final : public mcqnet::runtime::CompletionBackend {
+public:
+    struct ReadyCompletion {
+        BackendOperation* operation { nullptr };
+        int value { 0 };
+    };
+
+    void submit(BackendOperation* operation) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        pending_.push_back(operation);
+    }
+
+    void complete_next(int value) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            MCQNET_ASSERT(!pending_.empty());
+            ready_.push_back(ReadyCompletion { pending_.front(), value });
+            pending_.pop_front();
+        }
+        cv_.notify_one();
+    }
+
+    bool poll(clock::duration timeout) override {
+        ReadyCompletion completion { };
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            const auto ready = [this] { return wake_requested_ || !ready_.empty(); };
+
+            if ( ready_.empty() && !wake_requested_ ) {
+                if ( timeout == clock::duration::zero() ) {
+                    return false;
+                }
+                if ( timeout == clock::duration::max() ) {
+                    cv_.wait(lock, ready);
+                } else {
+                    cv_.wait_for(lock, timeout, ready);
+                }
+            }
+
+            if ( ready_.empty() ) {
+                wake_requested_ = false;
+                return false;
+            }
+
+            completion = ready_.front();
+            ready_.pop_front();
+            wake_requested_ = false;
+        }
+
+        completion.operation->finish(completion.value);
+        return true;
+    }
+
+    void wake() noexcept override {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            wake_requested_ = true;
+        }
+        cv_.notify_all();
+    }
+
+private:
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    std::deque<BackendOperation*> pending_;
+    std::deque<ReadyCompletion> ready_;
+    bool wake_requested_ { false };
+};
+
+inline void BackendOperation::submit() {
+    submitted_ = true;
+    backend_.submit(this);
+}
+
+Task<void> await_backend_operation_and_stop(
+    BackendOperation& operation, Runtime* runtime, int* result, bool* completed) {
+    *result = co_await mcqnet::detail::make_operation_awaiter(operation);
+    *completed = true;
+    runtime->stop();
 }
 
 } // namespace
@@ -400,6 +547,79 @@ int main() {
         task.await_resume();
         check(completed, "Free spawn JoinHandle should resume the parent on the runtime queue");
         check(result == 9, "Free spawn JoinHandle should preserve the child task result");
+    }
+
+    {
+        Runtime runtime;
+        ManualGate gate;
+        bool completed = false;
+        auto task = await_untracked_gate(gate, &completed);
+
+        runtime.post(task.handle());
+        check(runtime.run_one(), "run_one() should start the task that awaits an untracked awaitable");
+
+        runtime.stop();
+        runtime.run();
+
+        check(
+            !completed,
+            "A raw awaitable without scheduler/work-tracker integration should not count as runtime pending work");
+    }
+
+    {
+        Runtime runtime;
+        TrackedGate gate;
+        bool completed = false;
+        std::promise<void> runner_done;
+        auto runner_done_future = runner_done.get_future();
+        auto task = await_tracked_gate(gate, &completed);
+
+        runtime.post(task.handle());
+        check(runtime.run_one(), "run_one() should start the task that awaits a tracked awaitable");
+
+        runtime.stop();
+        std::jthread runner([&] {
+            runtime.run();
+            runner_done.set_value();
+        });
+        check(
+            runner_done_future.wait_for(std::chrono::milliseconds(20)) == std::future_status::timeout,
+            "A scheduler-aware awaitable that retains work should keep run() alive after stop()");
+
+        gate.open();
+        runner.join();
+        check(completed, "Tracked awaitable completion should resume the suspended task through the runtime");
+    }
+
+    {
+        ManualCompletionBackend backend;
+        Runtime runtime(&backend);
+        BackendOperation operation(backend);
+        int result = 0;
+        bool completed = false;
+        auto task = await_backend_operation_and_stop(operation, &runtime, &result, &completed);
+
+        runtime.post(task.handle());
+        std::promise<void> runner_started;
+        auto runner_started_future = runner_started.get_future();
+
+        std::jthread runner([&] {
+            runner_started.set_value();
+            runtime.run();
+        });
+
+        runner_started_future.wait();
+        while ( !operation.submitted() ) {
+            std::this_thread::yield();
+        }
+        check(operation.submitted(), "Backend-driven operation should still submit through OperationAwaiter");
+
+        backend.complete_next(777);
+        runner.join();
+        check(task.done(), "Completion backend dispatch should eventually resume the awaiting task");
+        task.await_resume();
+        check(completed, "Completion backend should resume the waiting task through runtime::run()");
+        check(result == 777, "Completion backend should preserve operation results");
     }
 
     std::cout << "runtime test passed\n";

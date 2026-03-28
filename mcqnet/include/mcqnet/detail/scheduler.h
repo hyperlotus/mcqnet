@@ -31,6 +31,24 @@ struct SchedulerBinding {
 
     MCQNET_NODISCARD
     inline bool tracks_work() const noexcept { return retain_work_fn != nullptr; }
+
+    inline void schedule(std::coroutine_handle<> continuation) const noexcept {
+        if ( schedule_fn != nullptr && continuation != nullptr ) {
+            schedule_fn(schedule_context, continuation);
+        }
+    }
+
+    inline void retain_work() const noexcept {
+        if ( retain_work_fn != nullptr ) {
+            retain_work_fn(schedule_context);
+        }
+    }
+
+    inline void release_work() const noexcept {
+        if ( release_work_fn != nullptr ) {
+            release_work_fn(schedule_context);
+        }
+    }
 };
 
 inline thread_local SchedulerBinding tls_scheduler_binding { };
@@ -62,8 +80,13 @@ private:
 
 // 若当前线程已经处于某个 runtime / scheduler 上，就把该恢复策略补给目标对象。
 // 这让 Task / JoinHandle / OperationBase 在 runtime 内被 await 时，默认继续回到同一 runtime。
-template <typename TSchedulerAware> inline void bind_current_scheduler_if_missing(TSchedulerAware& value) noexcept {
-    const SchedulerBinding scheduler = SchedulerScope::current();
+template <typename TSchedulerAware>
+inline void bind_scheduler_if_missing(TSchedulerAware& value, const SchedulerBinding& scheduler) noexcept {
+    // runtime pending work 只对“显式接入这组回调”的 awaitable 生效：
+    // 1. 用 schedule_fn 把 continuation 放回原执行上下文
+    // 2. 在真正异步挂起前 retain_work()
+    // 3. 当恢复义务被 ready item 消费或同步失败时 release_work()
+    // 没有接入这套协议的第三方 awaitable，不会被 runtime 记入 pending work。
 
     if constexpr ( requires(TSchedulerAware& candidate) {
                        candidate.has_scheduler();
@@ -82,6 +105,10 @@ template <typename TSchedulerAware> inline void bind_current_scheduler_if_missin
             value.set_work_tracker(scheduler.retain_work_fn, scheduler.release_work_fn);
         }
     }
+}
+
+template <typename TSchedulerAware> inline void bind_current_scheduler_if_missing(TSchedulerAware& value) noexcept {
+    bind_scheduler_if_missing(value, SchedulerScope::current());
 }
 
 } // namespace mcqnet::detail
