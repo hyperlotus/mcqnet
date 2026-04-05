@@ -15,7 +15,11 @@ using mcqnet::RuntimeException;
 using mcqnet::Task;
 using mcqnet::errc;
 using mcqnet::runtime::Handle;
+using mcqnet::runtime::RuntimeBackendPolicy;
+using mcqnet::runtime::RuntimeOptions;
 using mcqnet::runtime::Runtime;
+
+constexpr RuntimeOptions kRuntimeWithoutBackend { RuntimeBackendPolicy::none };
 
 [[noreturn]] void fail(std::string_view message) {
     std::cerr << message << '\n';
@@ -287,7 +291,7 @@ Task<void> await_backend_operation_and_stop(
 
 int main() {
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         bool resumed = false;
         auto task = mark_flag(&resumed);
 
@@ -301,7 +305,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         auto join = runtime.spawn(produce_value(7));
 
         check(!join.await_ready(), "Runtime::spawn() should schedule the task instead of running inline");
@@ -313,7 +317,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         int result = 0;
         bool completed = false;
         auto task = spawn_and_join(runtime.handle(), &runtime, &result, &completed);
@@ -326,7 +330,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         runtime.stop();
 
         bool caught = false;
@@ -340,7 +344,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         runtime.stop();
 
         bool caught = false;
@@ -353,7 +357,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         bool resumed = false;
         auto task = mark_flag_and_stop(&resumed, &runtime);
         std::promise<void> runner_started;
@@ -372,7 +376,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         std::promise<void> runner_started;
         auto runner_started_future = runner_started.get_future();
 
@@ -389,7 +393,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         std::promise<void> runner_started;
         auto runner_started_future = runner_started.get_future();
         bool caught = false;
@@ -412,7 +416,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         bool caught = false;
         auto task = reenter_run(&runtime, &caught);
 
@@ -423,7 +427,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         bool caught = false;
         auto task = reenter_run_one(&runtime, &caught);
 
@@ -433,7 +437,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         ManualOperation operation;
         auto task = await_manual_operation(operation);
 
@@ -450,7 +454,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         ManualOperation operation;
         int result = 0;
         bool completed = false;
@@ -478,7 +482,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         ManualOperation operation;
         int result = 0;
         bool completed = false;
@@ -509,7 +513,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         ManualOperation operation;
         int result = 0;
         bool completed = false;
@@ -529,7 +533,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         ManualGate gate;
         int result = 0;
         bool completed = false;
@@ -550,7 +554,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         ManualGate gate;
         bool completed = false;
         auto task = await_untracked_gate(gate, &completed);
@@ -567,7 +571,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(kRuntimeWithoutBackend);
         TrackedGate gate;
         bool completed = false;
         std::promise<void> runner_done;

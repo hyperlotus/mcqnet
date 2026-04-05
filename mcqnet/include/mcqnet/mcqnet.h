@@ -24,6 +24,9 @@
 #include <mcqnet/net/tcp_stream.h>
 #include <mcqnet/runtime/cancel.h>
 #include <mcqnet/runtime/io_backend.h>
+#if MCQNET_HAS_LIBURING
+#include <mcqnet/runtime/io_uring_backend.h>
+#endif
 #include <mcqnet/runtime/io_operation.h>
 #include <mcqnet/runtime/runtime.h>
 #include <mcqnet/memory/thread_local_pool.h>

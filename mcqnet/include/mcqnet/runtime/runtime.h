@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <mcqnet/config/assert.h>
+#include <mcqnet/config/feature.h>
 #include <mcqnet/core/error.h>
 #include <mcqnet/core/exception.h>
 #include <mcqnet/detail/macro.h>
@@ -133,6 +134,34 @@ namespace mcqnet::runtime {
 
 class Runtime;
 
+enum class RuntimeBackendPolicy : std::uint8_t {
+    auto_select = 0,
+    none = 1
+};
+
+// `auto_select` 依赖某个具体 backend 头在当前翻译单元里完成默认工厂注册。
+// 统一入口 `mcqnet/mcqnet.h` 在 Linux + liburing 场景下会完成这一步。
+struct RuntimeOptions {
+    RuntimeBackendPolicy backend_policy { RuntimeBackendPolicy::auto_select };
+    unsigned io_uring_queue_depth { 256U };
+};
+
+namespace detail {
+
+using DefaultCompletionBackendFactoryFn = std::unique_ptr<CompletionBackend> (*)(const RuntimeOptions&);
+
+inline DefaultCompletionBackendFactoryFn default_completion_backend_factory = nullptr;
+
+MCQNET_NODISCARD
+inline std::unique_ptr<CompletionBackend> make_default_completion_backend(const RuntimeOptions& options) {
+    if ( options.backend_policy == RuntimeBackendPolicy::none || default_completion_backend_factory == nullptr ) {
+        return nullptr;
+    }
+    return default_completion_backend_factory(options);
+}
+
+} // namespace detail
+
 // Handle 是 Runtime 的轻量引用视图。
 // 它不拥有 runtime 生命周期，只负责把投递和 spawn 请求转发给关联 runtime。
 class Handle {
@@ -171,7 +200,14 @@ public:
     using clock = std::chrono::steady_clock;
     using time_point = clock::time_point;
 
-    explicit Runtime(CompletionBackend* completion_backend = nullptr) noexcept
+    Runtime()
+        : Runtime(RuntimeOptions { }) { }
+
+    explicit Runtime(RuntimeOptions options)
+        : owned_completion_backend_(detail::make_default_completion_backend(options))
+        , completion_backend_(owned_completion_backend_.get()) { }
+
+    explicit Runtime(CompletionBackend* completion_backend) noexcept
         : completion_backend_(completion_backend) { }
     Runtime(const Runtime&) = delete;
     Runtime& operator=(const Runtime&) = delete;
@@ -200,16 +236,21 @@ public:
         return stopped_;
     }
 
-    // backend 由调用方持有生命周期；runtime 只保存一个非 owning 指针。
+    // 显式切换到调用方提供的 backend。
+    // Runtime 默认构造时若自动选中了 backend，会在这里释放掉那份内部持有的实例。
     // 为了避免在已有 pending work/timer 时切换 backend，这里只允许在 idle 状态配置。
     inline void set_completion_backend(CompletionBackend* completion_backend) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if ( driving_ || pending_work_ != 0 || !ready_queue_.empty() || !timers_.empty() ) {
-            core::throw_runtime_error(
-                core::error_code { core::errc::invalid_state },
-                "Runtime::set_completion_backend() requires an idle runtime");
+        std::unique_ptr<CompletionBackend> owned_completion_backend;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if ( driving_ || pending_work_ != 0 || !ready_queue_.empty() || !timers_.empty() ) {
+                core::throw_runtime_error(
+                    core::error_code { core::errc::invalid_state },
+                    "Runtime::set_completion_backend() requires an idle runtime");
+            }
+            owned_completion_backend = std::move(owned_completion_backend_);
+            completion_backend_ = completion_backend;
         }
-        completion_backend_ = completion_backend;
     }
 
     MCQNET_NODISCARD
@@ -682,6 +723,7 @@ private:
     std::unordered_map<std::uint64_t, TimerEntry> timers_;
     std::unordered_set<void*> owned_continuations_;
     std::uint64_t next_timer_id_ { 1 };
+    std::unique_ptr<CompletionBackend> owned_completion_backend_ { };
     CompletionBackend* completion_backend_ { nullptr };
     std::size_t pending_work_ { 0 };
     bool stopped_ { false };

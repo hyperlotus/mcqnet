@@ -1,7 +1,8 @@
 #pragma once
 
 // Handle 的 canonical 公共头。
-// naming_convention.md 明确要求用户通过 `mcqnet::runtime::Handle` 理解 runtime 引用语义，
+// 这里保留 `mcqnet::runtime::Handle` 这个稳定入口，
+// 用来表达“非 owning 的 runtime 引用视图”这层语义，
 // 因此这里先提供稳定的 include 路径。
 //
 // 当前 Handle 与 Runtime 仍共用同一个实现头：

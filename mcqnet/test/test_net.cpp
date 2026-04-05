@@ -34,6 +34,8 @@ using mcqnet::net::MutableBuffer;
 using mcqnet::runtime::IoBackend;
 using mcqnet::runtime::IoOperationBase;
 using mcqnet::runtime::IoOperationKind;
+using mcqnet::runtime::RuntimeBackendPolicy;
+using mcqnet::runtime::RuntimeOptions;
 using mcqnet::runtime::Runtime;
 
 [[noreturn]] void fail(std::string_view message) {
@@ -394,7 +396,7 @@ int main() {
     }
 
     {
-        Runtime runtime;
+        Runtime runtime(RuntimeOptions { RuntimeBackendPolicy::none });
         ManualIoOperation operation(runtime.handle(), SocketHandle(55));
         bool saw_not_supported = false;
         auto task = await_manual_io_expect_not_supported(operation, &saw_not_supported);
