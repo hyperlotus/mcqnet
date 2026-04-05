@@ -1,28 +1,21 @@
-# Local caches
-/.cache/
+# Whitelist mode: ignore everything at the repository root by default.
+/*
 
-# CMake build directories
-/build/
-/build-*/
-/cmake-build-*/
+# Keep project sources and root metadata visible to Git.
+!/.clang-format
+!/.clang-tidy
+!/.clangd
+!/.gitignore
+!/LICENSE
+!/README.md
+!/lib/
+!/lib/**
+!/mcqnet/
+!/mcqnet/**
+!/xmake.lua
 
-# In-source CMake/Ninja generated files
-/CMakeCache.txt
-/CMakeFiles/
-/.cmake/
-/compile_commands.json
-/CTestTestfile.cmake
-/Testing/
-/DartConfiguration.tcl
-/cmake_install.cmake
-/build.ninja
-/.ninja_deps
-/.ninja_log
-
-# Editor and OS temp files
+# Ignore editor and OS temp files anywhere in the tree.
 .DS_Store
-.idea/
-.vscode/
 *.swp
 *.swo
 *~
